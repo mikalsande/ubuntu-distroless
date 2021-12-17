@@ -1,0 +1,75 @@
+FROM builder-nodejs16 as builder
+
+# Packages needed to run copy_packages.py
+ENV BUILD_PACKAGES="python3 python3-apt"
+
+# Base packages that we install for all application runtime images.
+ENV BASE_PACKAGES="base-files ca-certificates dumb-init netbase tzdata"
+
+# Packages we install to support nodejs. This env var is used by
+# copy_packages.py to know which top level packages to resolve
+# dependencies for and install.
+ENV INSTALL_PACKAGES="$BASE_PACKAGES nodejs"
+
+# Install packages.
+RUN DEBIAN_FRONTEND=noninteractive apt-get -y install $BUILD_PACKAGES $INSTALL_PACKAGES
+
+# Do not install these packages, they are in the dependency graph of nodejs,
+# but are not necessary to run nodejs. This env is used by copy_packages.py
+# to know which package dependencies should be ignored.
+ENV IGNORE_PACKAGES="python3-minimal"
+
+# Run copy_package.py to create the new root directory.
+ENV NEW_ROOT=/new_root
+RUN mkdir $NEW_ROOT
+COPY scripts/copy_packages.py .
+RUN python3 copy_packages.py
+
+# Remove directories and files we are certain we will not need.
+RUN rm -rf $NEW_ROOT/usr/include $NEW_ROOT/usr/share/doc $NEW_ROOT/usr/share/man
+
+# Add an unprivileged user to run the application as.
+ENV USERID=65532
+RUN groupadd -g $USERID app && useradd -m app -u $USERID -g $USERID -d /app -s /usr/sbin/nologin -K UMASK=002
+
+# Create user home dir in the new root directory.
+RUN mkdir -p $NEW_ROOT/app && chown $USERID:$USERID $NEW_ROOT/app
+
+# Create /etc/ in new root directory.
+RUN mkdir -p $NEW_ROOT/etc
+
+# Create /tmp/ in the new root directory.
+RUN mkdir -p -m 01777 $NEW_ROOT/tmp
+
+# Copy passwd and group into the new root directory.
+RUN cp -fp /etc/passwd $NEW_ROOT/etc/passwd
+RUN cp -fp /etc/group $NEW_ROOT/etc/group
+
+# Bundle all the CA certificates into /etc/ssl/certs/ca-certificates.crt in the new root directory.
+COPY scripts/fix_ca_certs.sh .
+RUN bash fix_ca_certs.sh
+
+# Create and verify /etc/ld.so.cache in the new root directory to speed up linked library lookups.
+RUN ldconfig -r $NEW_ROOT --verbose
+RUN ldconfig -p -r $NEW_ROOT --verbose
+
+#################################################################################
+
+# Runtime image.
+FROM scratch
+
+# Set PATH.
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Set env var to make sure openssl finds its certificates
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+# Copy root from the builder image.
+COPY --from=builder /new_root /
+
+# Use dumb-init as entrypoint by default.
+ENTRYPOINT [ "/usr/bin/dumb-init" ]
+
+# Set default user to run as.
+USER 65532:65532
+WORKDIR /app
