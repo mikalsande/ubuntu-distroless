@@ -10,6 +10,6 @@ runner:  ## Buld the nodejs application runner container.
 	docker build -f Dockerfile.runner -t runner-nodejs16 .
 
 app:  ## Build an example application container and run it.
-	docker build -f Dockerfile.test -t test-nodejs16 .
+	docker build -f Dockerfile.app -t test-nodejs16 .
 	docker run -ti --rm test-nodejs16
 

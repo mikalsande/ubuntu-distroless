@@ -22,6 +22,15 @@ Top-level packages and why we install them.
 * tzdata (timezone information)
 
 
+## How to run the POC
+
+```
+make builder	# Creates the builder image
+make runner	# Creates the runner image
+make app	# Builds and runs an example application
+```
+
+
 ## How is this different than using Alpine?
 Differences from from building on Alpine:
 * Uses glibc instead of musl
